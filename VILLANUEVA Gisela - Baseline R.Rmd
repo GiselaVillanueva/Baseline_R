@@ -1,0 +1,121 @@
+---
+title: "VILLANUEVA Gisela - Baseline R"
+author: "Gisela Villanueva"
+date: "2024-01-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(kableExtra)
+library(sf)
+library(ggrepel)
+library(forcats)
+```
+
+**Carga de datos**
+
+```{r, warning=FALSE, cache=FALSE, message=FALSE}
+haunted_places <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2023/2023-10-10/haunted_places.csv')
+```
+
+**Breve descripción del dataset**
+
+El presente dataset fue provisto por Tidy Tuesday y corresponde a lugares embrujados en Estados Unidos. Los datos que contienen nos hablan de: ubicación geográfica, estado, ciudad, y descripción del lugar.
+Elegí al mismo porque no solo nos permite hacer operaciones y gráficos básicos (contar, ordenar, tablas, etc.), sino que podemos utilizar polígonos geográficos, lo cual (al menos a mi) resulta muy interesante y puede ser un desafío.
+
+**Pregunta 1: ¿cuáles son los estados que tienen más lugares embrujados?**
+
+Dado que los estados de EEUU son +50, elegiremos los primeros 15 de acuerdo con la cantidad de lugares embrujados:
+
+```{r, warning=FALSE, cache=FALSE, message=FALSE}
+principales_15 <- haunted_places %>% 
+  group_by(state) %>% 
+  summarise(total=n()) %>%
+  mutate(porcentaje=paste(round(100*total/nrow(haunted_places), 2), "%")) %>% 
+  arrange(desc(total)) %>% 
+  top_n(15)
+
+principales_15 %>% 
+  kable(col.names = c("Estado", "Total de lugares", "Porcentaje"),
+        format.args = list(decimal.mark = ",", big.mark = "."),
+        align = "ccc") %>%
+  collapse_rows(1) %>% 
+  row_spec(0, bold = TRUE) %>% 
+  row_spec(row = seq(2, nrow(principales_15), by = 2), background = "#b0c4de") %>% 
+  kable_classic_2()
+```
+
+Como podemos ver, si bien destacan mucho California y Texas, en general la distribución es uniforme.
+Ahora haremos un análisis similar, pero utilizando un mapa.
+
+**Pregunta 2: teniendo en cuenta las principales ciudades (en cuanto a cantidad de lugares embrujados) ¿podemos identificar algún patrón en cuanto a la distribución geográfica?**
+
+```{r, warning=FALSE, cache=FALSE, message=FALSE}
+estados_unidos <- st_read("https://raw.githubusercontent.com/GiselaVillanueva/Baseline_R/main/contiguous-us-with-states_1201.geojson?token=GHSAT0AAAAAACMSM5RR5PV6ISXGSLUGD666ZM4WFVQ")
+
+estados_unidos <- estados_unidos %>% 
+  select(state, geometry)
+```
+
+En el mapa, ubicaremos las ciudades que tengan +25 lugares embrujados, y las nombraremos. Excluimos Alaska y Hawaii, ya que no pertenecen al sector continental de EEUU.
+
+```{r, warning=FALSE, cache=FALSE, message=FALSE}
+lat_y_lon <- haunted_places %>% 
+  drop_na() %>% 
+  select(city, state, city_longitude, city_latitude) %>% 
+  mutate(city_and_state = paste(city, " - ", state)) %>% 
+  group_by(city_and_state, city_longitude, city_latitude) %>% 
+  summarise(total=n()) %>% 
+  arrange(desc(total))
+
+lat_y_lon <- lat_y_lon %>% 
+  filter(total > 25, !grepl("Honolulu", city_and_state))
+```
+
+```{r, warning=FALSE, cache=FALSE, message=FALSE}
+mapa <- ggplot() +
+  geom_sf(data = subset(estados_unidos)) +
+  geom_point(data = lat_y_lon, aes(x = city_longitude, y = city_latitude, size = total)) +
+  geom_label_repel(data = lat_y_lon, aes(x = city_longitude, y = city_latitude, label = city_and_state), size = 2) +
+  labs(x = "Longitud", y = "Latitud", size = "Total", title = "Principales ciudades por cantidad de lugares embrujados")
+
+mapa
+```
+
+En el mapa anterior, corroboramos lo que sabíamos del punto anterior: California, Texas y Pennsylvania. Si bien hacia el este hay algunas de las principales ciudades, podemos ubicar las que tienen mayor cantidad en la zona sudoeste.
+A continuación, en un nuevo mapa, veamos cómo se distribuyen los puntos a lo largo del país. Cada punto está asociado a la ubicación de una ciudad, y su tamaño no será asociado a la cantidad de lugares embrujados.
+Una vez más, excluiremos a Alaska y Hawaii.
+
+**Pregunta 3: en este nuevo análisis, ¿veremos una distribución geográfica similar a la del primer mapa?**
+
+```{r, warning=FALSE, cache=FALSE, message=FALSE}
+lat_y_lon_todos <- haunted_places %>% 
+  drop_na() %>% 
+  select(state, city_longitude, city_latitude) %>% 
+  group_by(state, city_longitude, city_latitude) %>% 
+  summarise(total=n()) %>% 
+  arrange(desc(total))
+
+lat_y_lon_todos <- lat_y_lon_todos %>% 
+  filter(!grepl(c("Alaska"), state), !grepl(c("Hawaii"), state))
+```
+
+
+```{r, warning=FALSE, cache=FALSE, message=FALSE}
+mapa_2 <- ggplot() +
+  geom_sf(data = subset(estados_unidos)) +
+  geom_point(data = lat_y_lon_todos, aes(x = city_longitude, y = city_latitude)) +
+  labs(x = "Longitud", y = "Latitud", title = "Lugares embrujados") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+mapa_2
+```
+
+Al contrario del primer mapa, donde destacaba la zona sudoeste del país, aquí vemos una acumulación de puntos en la costa este. ¿Por qué sucede esto? Podemos suponer que hay más ciudades al este; entonces, los lugares embrujados se reparten en una mayor cantidad de ciudades.
+Para que se entienda mejor: supongamos que tenemos 100 lugares embrujados y 2 ciudades al oeste, y 100 lugares embrujados y 50 ciudades al este. La cantidad de lugares embrujados es la misma, mas no destacaría ninguna ciudad en particular.
